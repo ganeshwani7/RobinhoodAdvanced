@@ -36,4 +36,6 @@ public interface RobinhoodAPI {
 
     MarketState getMarketStateForDate(final DateTime dateTime) throws RobinhoodException;
 
+    List<Transfer> getTransfers () throws RobinhoodException;
+
 }

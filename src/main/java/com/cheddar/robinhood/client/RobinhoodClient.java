@@ -30,16 +30,22 @@ public class RobinhoodClient implements RobinhoodAPI {
 
     private final HashMap<String, String> headers = new HashMap<String, String>() {{
         put("Accept", "*/*");
-        put("Accept-Encoding", "gzip, deflate");
-        put("Accept-Language", "en;q=1, fr;q=0.9, de;q=0.8, ja;q=0.7, nl;q=0.6, it;q=0.5");
+        put("Accept-Encoding", "gzip, deflate, br");
+        put("Accept-Language", "en-US,en;q=0.5");
         put("Content-Type", "application/x-www-form-urlencoded; charset=utf-8");
-        put("X-Robinhood-API-Version", "1.70.0");
+        put("Pragma", "no-cache");
+        put("X-Robinhood-API-Version", "1.315.0");
         put("Connection", "keep-alive");
-        put("User-Agent", "Robinhood/823 (iPhone; iOS 7.1.2; Scale/2.00)");
+        put("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:74.0) Gecko/20100101 Firefox/74.0");
+        put("Origin", "https://robinhood.com");
+        put("Referer", "https://robinhood.com");
+        put("Host", "api.robinhood.com");
+        put("X-ROBINHOOD-CHALLENGE-RESPONSE-ID", "0f299a9c-9eeb-4b59-92ff-ae18787d423a");
+//        put("Content-Type", "application/x-www-form-urlencoded; charset=utf-8");
     }};
 
     private final HashMap<String, String> endpoints = new HashMap<String, String>() {{
-        put("login", "https://api.robinhood.com/api-token-auth/");
+        put("login", "https://api.robinhood.com/oauth2/token/");
         put("investment_profile", "https://api.robinhood.com/user/investment_profile/");
         put("accounts", "https://api.robinhood.com/accounts/");
         put("ach_iav_auth", "https://api.robinhood.com/ach/iav/auth/");
@@ -110,9 +116,24 @@ public class RobinhoodClient implements RobinhoodAPI {
 
     private void doLogin() throws RobinhoodException {
         log.info("Logging in to Robinhood.");
+        Map<String, String> parameters = new ImmutableMap.Builder<String, String>()
+                .put("username", username)
+                .put("password", password)
+                .put("challenge_type", "sms")
+                .put("client_id", "c82SH0WZOsabOXGP2sxqcj34FxkvfnWRZBKlBjFS")
+                .put("device_token", "1ef8d952-098f-4e03-9d98-fd112d5e9c32")
+                .put("expires_in", "86400")
+                .put("grant_type", "password")
+                .put("scope", "internal")
+                .build();
+
+        HTTPQuery httpQuery = new HTTPQuery(
+                endpoints.get("login"),
+                parameters,
+                headers);
 
         Optional<HTTPResult> httpResult =
-                this.httpClient.executeHTTPPostRequest(new HTTPQuery(endpoints.get("login"), ImmutableMap.of("username", username, "password", password), headers));
+                this.httpClient.executeHTTPPostRequest(httpQuery);
 
         if (!httpResult.isPresent()) {
             throw new RobinhoodException("Bad response from Robinhood.");
@@ -127,7 +148,7 @@ public class RobinhoodClient implements RobinhoodAPI {
             throw new RobinhoodException(String.format("Unable to deserialize response of [%s]", httpResult));
         }
 
-        headers.put("Authorization", "Token " + responseMap.get().get("token"));
+        headers.put("Authorization", "Bearer " + responseMap.get().get("access_token"));
     }
 
     private void acquireAccountInfo() throws RobinhoodException {
@@ -138,9 +159,9 @@ public class RobinhoodClient implements RobinhoodAPI {
         if (!getResponse.isPresent()) {
             throw new RobinhoodException("Bad response from Robinhood.");
         }
-
+        String responseBody = getResponse.get().getBody();
         Optional<Map<String, List<Map<String, Object>>>> callResults =
-                JSONUtil.deserializeString(getResponse.get().getBody(), new TypeReference<Map<String, List<Map<String, Object>>>>() {});
+                JSONUtil.deserializeString(responseBody, new TypeReference<Map<String, List<Map<String, Object>>>>() {});
 
         if (!callResults.isPresent()) {
             throw new RobinhoodException(String.format("Unable to deserialize response of [%s]", getResponse));
@@ -596,6 +617,42 @@ public class RobinhoodClient implements RobinhoodAPI {
         }
 
         return new MarketState(responseObject.get());
+    }
+
+    @Override
+    public List<Transfer> getTransfers() throws RobinhoodException {
+        log.info("Getting account transfers.");
+        verifyLoginStatus();
+
+        final List<Transfer> Transfers = new ArrayList<>();
+
+        final Collection<HTTPResult> httpResults = scrapePaginatedAPI(getEndpoints().get("ach_transfers"), ImmutableMap.of(), getHeaders());
+
+        for (final HTTPResult httpResult : httpResults) {
+            final JSONObject jsonResult = new JSONObject(httpResult.getBody());
+
+            final JSONArray instrumentsListObj = jsonResult.getJSONArray("results");
+
+
+            for (final Object TransferObj : instrumentsListObj) {
+                if (!(TransferObj instanceof JSONObject)) {
+                    continue;
+                }
+
+                Optional<Transfer> TransferOptional = JSONUtil.deserializeObject(TransferObj.toString(), Transfer.class);
+
+                if (!TransferOptional.isPresent()) {
+                    log.warn("Could not deserialize Transfer {}", TransferOptional);
+                    continue;
+                }
+
+                final Transfer Transfer = TransferOptional.get();
+
+                Transfers.add(Transfer);
+            }
+        }
+
+        return Transfers;
     }
 
 }
