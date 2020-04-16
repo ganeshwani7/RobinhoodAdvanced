@@ -1,3 +1,6 @@
+This project is an extension of generous implementation found at
+https://github.com/StockStreamLive/RobinhoodJavaClient
+
 # RobinhoodJavaClient
 
 This repository contains a client written in java for connecting to the Robinhood API. [See sanko/Robinhood](https://github.com/sanko/Robinhood) for documentation on the API.
