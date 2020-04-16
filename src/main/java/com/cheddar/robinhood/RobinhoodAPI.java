@@ -16,6 +16,8 @@ public interface RobinhoodAPI {
 
     Optional<Instrument> getInstrumentForSymbol(final String symbol);
 
+    Map<String, Instrument> getInstrumentMapForIds(List<String> instrumentIds);
+
     public MarginBalances getMarginBalances() throws RobinhoodException;
 
     List<Position> getPositions() throws RobinhoodException;
@@ -38,4 +40,5 @@ public interface RobinhoodAPI {
 
     List<Transfer> getTransfers () throws RobinhoodException;
 
+    Collection<OptionOrder> getOptionOrdersAfterDate(Date date) throws RobinhoodException;
 }

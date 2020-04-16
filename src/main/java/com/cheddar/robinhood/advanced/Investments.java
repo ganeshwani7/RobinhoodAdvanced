@@ -1,32 +1,112 @@
 package com.cheddar.robinhood.advanced;
 
 import com.cheddar.robinhood.client.RobinhoodClient;
-import com.cheddar.robinhood.data.Portfolio;
+import com.cheddar.robinhood.data.Instrument;
+import com.cheddar.robinhood.data.OptionOrder;
+import com.cheddar.robinhood.enums.OrderDirection;
 import com.cheddar.robinhood.data.Transfer;
+import com.cheddar.robinhood.enums.OrderState;
 import com.cheddar.robinhood.exception.RobinhoodException;
 import lombok.extern.slf4j.Slf4j;
 import org.joda.time.DateTime;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 @Slf4j
 public class Investments {
 	RobinhoodClient robinhoodClient;
+	Map<String, Instrument> instrumentMap = new HashMap<>();
 
 	public Investments (RobinhoodClient robinhoodClientIn) {
 		robinhoodClient = robinhoodClientIn;
 	}
 
-	public void getPortfolio() {
-		try {
-			Portfolio portfolio = robinhoodClient.getPortfolio();
+	public Collection<OptionOrder> getAllOptionsOrdersTillDate () throws RobinhoodException {
+		return robinhoodClient.getOptionOrdersAfterDate(new DateTime().minusYears(20).toDate());
+	}
 
-		} catch (RobinhoodException e) {
-			e.printStackTrace();
-		}
+
+	/**
+	 * Groups option orders for trade symbols
+	 * @param optionOrders
+	 * @return
+	 */
+	public Map<String, List<OptionOrder>> combineOptionOrdersBySymbol (Collection<OptionOrder> optionOrders) {
+		Map<String, List<OptionOrder>> groupedOptionOrders = new HashMap<>();
+
+		optionOrders.forEach(optionOrder -> {
+			String symbol = optionOrder.getChain_symbol();
+			List<OptionOrder> orders = groupedOptionOrders.get(symbol);
+
+			if (orders == null) {
+				orders = new ArrayList<>();
+				groupedOptionOrders.put(symbol, orders);
+			}
+
+			orders.add(optionOrder);
+		});
+
+		return groupedOptionOrders;
+	}
+
+	/**
+	 * Shows unrealized gain/loss (because it shows money invested as well)
+	 *
+	 * Doesn't deal with legs of the position
+	 *
+	 * @throws RobinhoodException
+	 */
+	public void printUnrealizedOptionReturns () throws RobinhoodException {
+		Collection<OptionOrder> optionOrders = getAllOptionsOrdersTillDate();
+
+		Map<String, List<OptionOrder>> groupedOptionOrders = combineOptionOrdersBySymbol(optionOrders);
+
+		AtomicLong totalUnrealizedDebit = new AtomicLong();
+		AtomicLong totalUnrealizedCredit = new AtomicLong();
+
+		groupedOptionOrders.
+				forEach((symbol, orders) -> {
+			long credit = 0, debit = 0;
+
+			orders = orders
+					.stream()
+					.filter(optionOrder -> optionOrder.getState().equals(OrderState.FILLED.getOrderState()))
+					.collect(Collectors.toList());
+
+			for (OptionOrder order : orders) {
+
+				if (order.getDirection().equals(OrderDirection.CREDIT.getDirection())) {
+					credit += order.getPremium();
+				} else if (order.getDirection().equals(OrderDirection.DEBIT.getDirection())) {
+					debit += order.getPremium();
+				} else {
+					log.error("Direction of the trade doesn't make sense!!");
+				}
+
+			}
+
+			totalUnrealizedDebit.addAndGet(credit);
+			totalUnrealizedCredit.addAndGet(debit);
+
+			if (credit > debit) {
+				log.info("Position with {} is in profit of {}", symbol, credit - debit);
+			} else {
+				log.info("Position with {} is in loss of {}", symbol, debit - credit);
+			}
+
+		});
+
+		log.info("Total unrealized credit {}", totalUnrealizedCredit.get());
+		log.info("Total unrealized debit {}", totalUnrealizedDebit.get());
+
 
 	}
 
@@ -38,6 +118,7 @@ public class Investments {
 				getTransfers()
 				.stream()
 				.filter(transfer -> transfer.getDirection().equals("deposit"))
+				.filter(transfer -> transfer.getState().equals("completed"))
 				.collect(Collectors.toList());
 	}
 
@@ -46,6 +127,7 @@ public class Investments {
 				getTransfers()
 				.stream()
 				.filter(transfer -> transfer.getDirection().equals("withdraw"))
+				.filter(transfer -> transfer.getState().equals("completed"))
 				.collect(Collectors.toList());
 	}
 
@@ -89,11 +171,11 @@ public class Investments {
 		log.info("Amount deposited in a year is {}", calculateTotals(getDepositsInLastYear()));
 		log.info("Amount deposited from the begining is {}", calculateTotals(getAllDeposits()));
 
-		System.out.println("Amount deposited in last month is " + calculateTotals(getDepositsOverTheLastMonth()));
-		System.out.println("Amount deposited in 6 months is " + calculateTotals(getDepositsInLastSixMonths()));
-		System.out.println("Amount deposited in a year is " + calculateTotals(getDepositsInLastYear()));
-		System.out.println("Amount deposited from the begining is " + calculateTotals(transfers));
-		System.out.println();
+		log.info("Amount deposited in last month is " + calculateTotals(getDepositsOverTheLastMonth()));
+		log.info("Amount deposited in 6 months is " + calculateTotals(getDepositsInLastSixMonths()));
+		log.info("Amount deposited in a year is " + calculateTotals(getDepositsInLastYear()));
+		log.info("Amount deposited from the begining is " + calculateTotals(transfers));
+		log.info("\n");
 
 		Collections.sort(transfers, new Comparator<Transfer>() {
 			@Override
@@ -110,23 +192,23 @@ public class Investments {
 
 		transfers.forEach(
 				transfer -> {
-					System.out.print("Amount: " + transfer.getAmount());
-					System.out.print(" " + transfer.getDirection() + "  ");
-					System.out.print(" On : " + transfer.getCreated_at());
-					System.out.println();
+					log.info("Amount: " + transfer.getAmount());
+					log.info(" " + transfer.getDirection() + "  ");
+					log.info(" On : " + transfer.getCreated_at());
+					log.info("\n");
 				}
 		);
-		System.out.println();
+		log.info("\n");
 		transfers = getAllWithdraws();
 
-		System.out.println("Total amount withdrawn " + calculateTotals(transfers));
+		log.info("Total amount withdrawn " + calculateTotals(transfers));
 
 		transfers.forEach(
 				transfer -> {
-					System.out.print("Amount: " + transfer.getAmount());
-					System.out.print(" " + transfer.getDirection() + "  ");
-					System.out.print(" On : " + transfer.getCreated_at());
-					System.out.println();
+					log.info("Amount: " + transfer.getAmount());
+					log.info(" " + transfer.getDirection() + "  ");
+					log.info(" On : " + transfer.getCreated_at());
+					log.info("\n");
 				}
 		);
 	}

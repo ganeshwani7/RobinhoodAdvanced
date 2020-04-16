@@ -68,9 +68,11 @@ public class RobinhoodClient implements RobinhoodAPI {
         put("user/employment", "https://api.robinhood.com/user/employment/");
         put("user/investment_profile", "https://api.robinhood.com/user/investment_profile/");
         put("watchlists", "https://api.robinhood.com/watchlists/");
+        put("options", "https://api.robinhood.com/options/orders/");
     }};
 
-    private static final List<String> REQUIRED_ENDPOINT_KEYS = ImmutableList.of("positions", "portfolio", "account");
+    private static final List<String> REQUIRED_ENDPOINT_KEYS = ImmutableList.of("positions", "portfolio", "account",
+            "options");
 
     private final HTTPClient httpClient = new HTTPClient();
 
@@ -423,6 +425,40 @@ public class RobinhoodClient implements RobinhoodAPI {
     }
 
     @Override
+    public Map<String, Instrument> getInstrumentMapForIds (List<String> instrumentIds) {
+        Map<String, Instrument> result = new HashMap<>();
+
+        final Optional<HTTPResult> httpResult =
+                this.httpClient.executeHTTPGetRequest(
+                        new HTTPQuery(
+                                endpoints.get("instruments"),
+                                ImmutableMap.of("ids", String.join(",", instrumentIds)),
+                                headers));
+
+        if (!httpResult.isPresent()) {
+            return new HashMap<>();
+        }
+
+        final JSONObject jsonObj = new JSONObject(httpResult.get().getBody());
+
+        final JSONArray jsonArray = jsonObj.getJSONArray("results");
+
+        if (jsonArray.length() <= 0) {
+            return new HashMap<>();
+        }
+
+        List<Instrument> instruments = new ArrayList<>();
+        jsonArray.forEach( jsonObject -> {
+            Optional<Instrument> optionalInstrument = JSONUtil.deserializeObject(jsonObject.toString(), Instrument.class);
+            optionalInstrument.ifPresent(instruments::add);
+        });
+
+        instruments.forEach(instrument -> result.put(instrument.getId(), instrument));
+
+        return result;
+    }
+
+    @Override
     public MarginBalances getMarginBalances() throws RobinhoodException {
         verifyLoginStatus();
 
@@ -483,6 +519,21 @@ public class RobinhoodClient implements RobinhoodAPI {
 
         return allInstruments;
     }
+
+    @Override
+    public Collection<OptionOrder> getOptionOrdersAfterDate(final Date date) {
+
+        final String dateStr = TimeUtil.createStrFromDate(date, "yyyy-MM-dd'T'HH:mm:ss.000000'Z'");
+
+        final Collection<HTTPResult> httpResults =
+                scrapePaginatedAPI(
+                        endpoints.get("options"),
+                        ImmutableMap.of("updated_at[gte]", dateStr),
+                        headers);
+
+        return getTypedListFromHttpResults(httpResults, OptionOrder.class);
+    }
+
 
     private Collection<HTTPResult> scrapePaginatedAPI(final String url, final Map<String, String> parameters, final Map<String, String> headers) {
         final Set<HTTPResult> httpResults = new HashSet<>();
@@ -564,36 +615,11 @@ public class RobinhoodClient implements RobinhoodAPI {
     public Collection<Order> getOrdersAfterDate(final Date date) throws RobinhoodException {
         verifyLoginStatus();
 
-        final Collection<Order> allOrders = new HashSet<>();
-
         final String dateStr = TimeUtil.createStrFromDate(date, "yyyy-MM-dd'T'HH:mm:ss.000000'Z'");
 
         final Collection<HTTPResult> httpResults = scrapePaginatedAPI(endpoints.get("orders"), ImmutableMap.of("updated_at[gte]", dateStr), headers);
 
-        for (final HTTPResult httpResult : httpResults) {
-            log.info("Getting all orders, have {} so far.", allOrders.size());
-
-            final JSONObject callResult = new JSONObject(httpResult.getBody());
-
-            final JSONArray ordersListObj = callResult.getJSONArray("results");
-
-            for (final Object ordersObj : ordersListObj) {
-                if (!(ordersObj instanceof JSONObject)) {
-                    continue;
-                }
-
-                Optional<Order> order = JSONUtil.deserializeObject(ordersObj.toString(), Order.class);
-
-                if (!order.isPresent()) {
-                    log.warn("Could not deserialize order {}", ordersObj);
-                    continue;
-                }
-
-                allOrders.add(order.get());
-            }
-        }
-
-        return allOrders;
+        return getTypedListFromHttpResults(httpResults, Order.class);
     }
 
     @Override
@@ -653,6 +679,35 @@ public class RobinhoodClient implements RobinhoodAPI {
         }
 
         return Transfers;
+    }
+
+    // Helper function
+    private <T> Collection<T> getTypedListFromHttpResults(final Collection<HTTPResult> httpResults, Class<T> clazz) {
+        final Collection<T> allRecords = new HashSet<>();
+
+        for (final HTTPResult httpResult : httpResults) {
+            log.info("Getting all records for {}, have {} so far.", clazz.getName(), allRecords.size());
+
+            final JSONObject callResult = new JSONObject(httpResult.getBody());
+
+            final JSONArray ordersListObj = callResult.getJSONArray("results");
+
+            for (final Object ordersObj : ordersListObj) {
+                if (!(ordersObj instanceof JSONObject)) {
+                    continue;
+                }
+
+                Optional<T> order = JSONUtil.deserializeObject(ordersObj.toString(), clazz);
+
+                if (!order.isPresent()) {
+                    log.warn("Could not deserialize {}", ordersObj);
+                    continue;
+                }
+
+                allRecords.add(order.get());
+            }
+        }
+        return allRecords;
     }
 
 }

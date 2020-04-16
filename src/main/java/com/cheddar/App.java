@@ -41,6 +41,7 @@ public class App {
 		Investments investments = new Investments(robinhoodClient);
 		investments.printTransferInfo();
 
+		investments.printUnrealizedOptionReturns();
 	}
 
 	private static Map<String, String> getUserNameAndPassword(String fileName) throws IOException {
@@ -62,7 +63,7 @@ public class App {
 			throw ex;
 		}
 
-		System.out.println("Read properties successfully");
+		log.info("Read properties successfully");
 
 		return properties;
 	}
