@@ -18,7 +18,7 @@ This repository contains a client written in java for connecting to the Robinhoo
  * Make sure that you've file named `config.properties` at path `src/main/resources` (For security reasons file has 
  been excluded)
  * Add following fields in `config.properties`
-    *  username=<your_robinhood_password>
+    *  username=<your_robinhood_username>
     *  password=<your_robinhood_password>
  * Run main class App.java and you would see portfolio details on console such as
     * Past transactions over 1 month, 6 months and 1 year
